@@ -8,8 +8,13 @@
 #define RADIUSMAX 40  // 细胞最大直径
 #define ROUNDNESS 1.5 // 细胞圆满度
 
-int Classify(Image & image, const std::vector <Pixel> & means)
+int Classify(Image & image, std::vector <Pixel> means)
 {
+	std::vector <int> labels;
+	cv::kmeans(image, 3, labels,
+		cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT, 10, 1.0),
+		3, cv::KMEANS_PP_CENTERS, means);
+
 	for (int j = 0; j < image.Height(); j++)
 	{
 		for (int i = 0; i < image.Width(); i++)
@@ -27,6 +32,7 @@ int Classify(Image & image, const std::vector <Pixel> & means)
 				p = Pixel(2, -1, -1);
 		}
 	}
+
 	return 0;
 }
 
@@ -105,8 +111,46 @@ int Check(Image & image, std::vector <Cluster> & book)
 	return 0;
 }
 
-int Split()
+int Split(std::vector <Cluster> & book)
 {
+	int n = (int)book.size();
+	for (int i = 0; i < n; i++)
+	{
+		if (book[i].empty())
+			continue;
+
+		double r = book[i].Radius();
+		if (r <= RADIUSMAX && (float)book[i].size() >= ROUNDNESS * r * r)
+			continue;
+	
+		int k = 1;
+		int ok = 0;
+		std::vector <Cluster> temp;
+		while (!ok)
+		{
+			k++;
+			ok = 1;
+			temp.clear();
+			book[i].Split(temp, k);
+			for (auto & c : temp)
+			{
+				double r = c.Radius();
+				if (r > RADIUSMAX || (float)c.size() < ROUNDNESS * r * r)
+				{
+					ok = 0;
+					break;
+				}
+			}
+		}
+
+		book[i].clear();
+		for (auto & c : temp)
+		{
+			book.push_back(Cluster());
+			book.back().swap(c);
+		}
+	}
+
 	return 0;
 }
 
@@ -135,12 +179,8 @@ int Train()
 	}
 
 	// 颜色分类
-	std::vector <int> labels;
-	std::vector <cv::Point3f> centers;
-	cv::kmeans(image, 3, labels,
-		cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT, 10, 1.0),
-		3, cv::KMEANS_PP_CENTERS, centers);
-	Classify(image, centers);
+	std::vector <Pixel> means;
+	Classify(image, means);
 
 	// 细胞融合
 	std::vector <Cluster> book;
@@ -148,9 +188,11 @@ int Train()
 	Check(image, book);
 
 	// 细胞分裂
+	//	Split(book);
+	//	Check(image, book);
 
 	// 输出结果
-	std::cout << centers << std::endl;
+	std::cout << means << std::endl;
 	for (auto & c : book)
 	{
 		if(!c.empty())
