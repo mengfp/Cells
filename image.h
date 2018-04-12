@@ -1,9 +1,17 @@
 #pragma once
+#include <set>
 #include <iostream>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 
 typedef cv::Point3f Pixel;
+typedef cv::Point2f Point;
+
+template <typename T> double distance(const T & a, const T & b)
+{
+	auto x = a - b;
+	return sqrt(x.ddot(x));
+}
 
 class Image : public std::vector <Pixel>
 {
@@ -23,12 +31,12 @@ public:
 		Load(filename);
 	}
 
-	int GetWidth()
+	int Width()
 	{
 		return width;
 	}
 
-	int GetHeight()
+	int Height()
 	{
 		return height;
 	}
@@ -94,5 +102,34 @@ public:
 			}
 		}
 		return cv::imwrite(filename, im) ? 0 : -1;
+	}
+};
+
+class Cluster : public std::vector <Point>
+{
+public:
+	Point Center()
+	{
+		if (empty())
+			return Point(0, 0);
+
+		Point c(0, 0);
+		for (auto & p : *this)
+			c += p;
+		return (1.0 / (int)size()) * c;
+	}
+
+	double Radius()
+	{
+		double r = 0;
+		Point c = Center();
+		for (auto & p : *this)
+			r = std::max(r, distance(p, c));
+		return r;
+	}
+
+	int Split(std::vector <Cluster> & book, int k)
+	{
+		return 0;
 	}
 };
