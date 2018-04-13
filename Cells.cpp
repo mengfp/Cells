@@ -4,10 +4,6 @@
 #include "stdafx.h"
 #include "image.h"
 
-#define SIZEMIN 1000
-#define SIZEMAX 3000
-#define ODDNESS 0.2
-
 int Classify(Image & image, const std::vector <Pixel> & means)
 {
 	for (int j = 0; j < image.Height(); j++)
@@ -72,11 +68,13 @@ int Join(Image & image, std::vector <Cluster> & book)
 			}
 		}
 	}
+
 	return 0;
 }
 
-int Check(Image & image, std::vector <Cluster> & book)
+int Polish(Image & image, std::vector <Cluster> & book)
 {
+	// 忽略处于图像边缘的细胞
 	for (int i = 0; i < image.Width(); i++)
 	{
 		int k = (int)image(i, 0).y;
@@ -97,10 +95,49 @@ int Check(Image & image, std::vector <Cluster> & book)
 			book[k].clear();
 	}
 
+	// 打磨处理
 	for (auto & c : book)
 	{
-		if (!c.empty() && c.size() < SIZEMIN)
+		if (c.size() < SIZEMIN)
+		{
 			c.clear();
+			continue;
+		}
+
+		int remain = (int)c.size();
+		for (auto & p : c)
+			image((int)p.x, (int)p.y).z = 0;
+
+		while (remain > c.size() * 0.5)
+		{
+			for (auto & p : c)
+			{
+				int x = (int)p.x;
+				int y = (int)p.y;
+				if (image(x, y).z < 0)
+					continue;
+				if (image(x - 1, y).z < 0 || image(x + 1, y).z < 0 ||
+					image(x, y - 1).z < 0 || image(x, y + 1).z < 0)
+					image(x, y).z = 1;
+			}
+
+			for (auto & p : c)
+			{
+				auto & pixel = image((int)p.x, (int)p.y);
+				if (pixel.z == 1)
+				{
+					pixel.z = -1;
+					remain--;
+				}
+			}
+		}
+
+		int n = (int)c.size();
+		for (int i = 0; i < n; i++)
+		{
+			if (image((int)c[i].x, (int)c[i].y).z == 0)
+				c.push_back(c[i]);
+		}
 	}
 
 	return 0;
@@ -111,34 +148,19 @@ int Split(Image & image, std::vector <Cluster> & book)
 	int n = (int)book.size();
 	for (int i = 0; i < n; i++)
 	{
-		if (book[i].empty())
+		if (book[i].size() < SIZEMIN)
 			continue;
 
-		if (book[i].size() <= SIZEMAX && book[i].Odd() <= ODDNESS)
-			continue;
-	
-		int k = 1;
-		int ok = 0;
 		std::vector <Cluster> temp;
-		while (!ok)
-		{
-			k++;
-			ok = 1;
-			temp.clear();
-			book[i].Split(temp, k);
-			for (auto & c : temp)
-			{
-				if (c.size() > SIZEMAX || c.Odd() > ODDNESS)
-				{
-					ok = 0;
-					break;
-				}
-			}
-		}
+		book[i].Split(temp);
+		if (temp.size() == 1)
+			continue;
 
 		book[i].clear();
 		for (auto & c : temp)
 		{
+			if (c.size() < SIZEMIN)
+				continue;
 			for (auto & p : c)
 				image((int)p.x, (int)p.y).y = (float)book.size();
 			book.push_back(Cluster());
@@ -153,7 +175,7 @@ int Train()
 {
 	// 读取图像
 	Image image;
-	image.Append("Samples/五等001.tif");
+//	image.Append("Samples/五等001.tif");
 //	image.Append("Samples/五等002.tif");
 //	image.Append("Samples/五等003.tif");
 //	image.Append("Samples/五等004.tif");
@@ -181,22 +203,40 @@ int Train()
 		3, cv::KMEANS_PP_CENTERS, means);
 	Classify(image, means);
 
-	// 细胞融合
+	// 融合
 	std::vector <Cluster> book;
 	Join(image, book);
-	Check(image, book);
 
-	// 细胞分裂
+	// 打磨
+	Polish(image, book);
+
+	// 分裂
 	Split(image, book);
-	Check(image, book);
 
-	// 输出结果
-	std::cout << means << std::endl;
+	// 计数
+	int cells = 0;
+	int infect = 0;
 	for (auto & c : book)
 	{
-		if(!c.empty())
-			std::cout << c.size() << "," << c.Odd() << std::endl;
+		if (c.size() < SIZEMIN)
+			continue;
+
+		cells++;
+		for (auto & p : c)
+		{
+			if (image((int)p.x, (int)p.y).x == 2)
+			{
+				infect++;
+				break;
+			}
+		}
 	}
+
+	// 输出结果
+	std::cout << "颜色值:" << std::endl;
+	std::cout << means << std::endl;
+	std::cout << "计数:" << std::endl;
+	std::cout << cells << "," << infect << "," << (double)infect / (double)cells << std::endl;
 
 	for (auto & c : book)
 	{
@@ -226,6 +266,7 @@ int Train()
 				p = Pixel(255, 0, 0);
 		}
 	}
+
 	image.Save("train.png");
 
 	return 0;
@@ -238,79 +279,107 @@ const std::vector <Pixel> colorrefs =
 	{ 11.166588f, -25.756166f, 14.589508f }
 };
 
-#include <gmm.h>
-
-int TestGMM()
-{
-	const float data[] = 
-	{
-		0, 0, 0, 1, 0, 2, 1, 0, 1, 1, 1, 2, 2, 0, 2, 1, 2, 2, 
-		10, 0, 10, 1, 11, 0, 11, 1,
-		0, 10, 0, 11, 1, 10, 1, 11 
-	};
-
-	// create a new instance of a GMM object for float data
-	auto gmm = vl_gmm_new(VL_TYPE_FLOAT, 2, 3);
-
-	// set the maximum number of EM iterations to 100
-	vl_gmm_set_max_num_iterations(gmm, 100);
-
-	// set the initialization to random selection
-	vl_gmm_set_initialization(gmm, VlGMMRand);
-
-	// cluster the data, i.e. learn the GMM
-	vl_gmm_cluster(gmm, data, 17);
-
-	// get the means, covariances, and priors of the GMM
-	auto means = (float *)vl_gmm_get_means(gmm);
-	auto covariances = (float *)vl_gmm_get_covariances(gmm);
-	auto priors = (float *)vl_gmm_get_priors(gmm);
-
-	// get loglikelihood of the estimated GMM
-	auto loglikelihood = vl_gmm_get_loglikelihood(gmm);
-
-	// get the soft assignments of the data points to each cluster
-	auto posteriors = (float *)vl_gmm_get_posteriors(gmm);
-
-	for (int i = 0; i < 2 * 3; i++)
-		std::cout << means[i] << (i < 2 * 3 - 1 ? "," : "\n");
-
-	for (int i = 0; i < 2 * 3; i++)
-		std::cout << covariances[i] << (i < 2 * 3 - 1 ? "," : "\n");
-
-	for (int i = 0; i < 3; i++)
-		std::cout << priors[i] << (i < 3 - 1 ? "," : "\n");
-
-	for (int i = 0; i < 17; i++)
-	{
-		for (int j = 0; j < 3; j++)
-		{
-			std::cout << posteriors[i * 3 + j] << (j < 3 - 1 ? "," : "\n");
-		}
-	}
-
-	return 0;
-}
-
 int main(int argc, _TCHAR* argv[])
 {
-
-//	TestGMM();
-//	return 0;
-
-	Train();
+	if (Train() == 0)
+		return 0;
 
 	if (argc < 2)
+	{
+		std::cout << "用法:" << std::endl;
+		std::cout << "Cells <input_file>" << std::endl;
+		std::cout << "或" << std::endl;
+		std::cout << "Cells <input_file> <output_file>" << std::endl;
 		return 0;
+	}
 
 	Image image(argv[1]);
 	if (image.empty())
 	{
 		std::cout << "Loading image failed." << std::endl;
-		return 1;
+		return -1;
 	}
 
+	// 预处理
+	for (int j = 0; j < image.Height(); j++)
+	{
+		for (int i = 0; i < image.Width(); i++)
+		{
+			auto & p = image(i, j);
+			auto e = (p.x + p.y + p.z) / 3;
+			p -= Pixel(e, e, e);
+		}
+	}
+
+	// 颜色分类
 	Classify(image, colorrefs);
+
+	// 融合
+	std::vector <Cluster> book;
+	Join(image, book);
+
+	// 打磨
+	Polish(image, book);
+
+	// 分裂
+	Split(image, book);
+
+	// 计数
+	int cells = 0;
+	int infect = 0;
+	for (auto & c : book)
+	{
+		if (c.size() < SIZEMIN)
+			continue;
+
+		cells++;
+		for (auto & p : c)
+		{
+			if (image((int)p.x, (int)p.y).x == 2)
+			{
+				infect++;
+				break;
+			}
+		}
+	}
+
+	// 输出结果
+	std::cout << cells << "," << infect << "," << (double)infect / (double)cells << std::endl;
+
+	// 输出图像
+	if (argc < 3)
+		return 0;
+
+	for (auto & c : book)
+	{
+		for (auto & p : c)
+		{
+			int x = (int)p.x;
+			int y = (int)p.y;
+			auto tag = image(x, y).y;
+			if (image(x - 1, y).y != tag || image(x + 1, y).y != tag ||
+				image(x, y - 1).y != tag || image(x, y + 1).y != tag)
+				image(x, y).x = 3;
+		}
+	}
+
+	for (int j = 0; j < image.Height(); j++)
+	{
+		for (int i = 0; i < image.Width(); i++)
+		{
+			auto & p = image(i, j);
+			if (p.x == 0)
+				p = Pixel(255, 255, 255);
+			else if (p.x == 1)
+				p = Pixel(127, 127, 127);
+			else if (p.x == 2)
+				p = Pixel(0, 0, 0);
+			else
+				p = Pixel(255, 0, 0);
+		}
+	}
+
+	image.Save(argv[2]);
 
 	return 0;
 }

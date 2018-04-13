@@ -3,6 +3,10 @@
 #include <iostream>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <gmm.h>
+
+#define SIZEMIN 1200
+#define GAINMIN 500
 
 typedef cv::Point3f Pixel;
 typedef cv::Point2f Point;
@@ -108,30 +112,88 @@ public:
 class Cluster : public std::vector <Point>
 {
 public:
-	double Odd()
+	int Split(std::vector <Cluster> & book)
 	{
-		if (empty())
+		// check
+		if (size() < SIZEMIN)
 			return 0;
-		Point c;
-		double d = 0;
-		for (auto & p : *this)
+
+		// prepare data
+		auto data = new double[2 * size()];
+		for (int i = 0; i < (int)size(); i++)
 		{
-			c += p;
-			d += p.ddot(p);
+			data[2 * i] = (*this)[i].x;
+			data[2 * i + 1] = (*this)[i].y;
 		}
-		double a = 1.0 / size();
-		return (d - c.ddot(c) * a) * a * a;
+
+		// try to split
+		double prev = -DBL_MAX;
+		for(int k = 1; k < 4; k++)
+		{
+			std::vector <Cluster> temp;
+			double likelihood = Split(data, k, temp);
+			if (likelihood > prev + GAINMIN)
+			{
+				// accept and continue
+				temp.swap(book);
+				prev = likelihood;
+			}
+			else
+			{
+				// stop
+				break;
+			}
+		}
+
+		return 0;
 	}
 
-	int Split(std::vector <Cluster> & book, int k)
+	double Split(const double * data, int k, std::vector <Cluster> & book)
 	{
-		std::vector <int> labels;
-		cv::kmeans(*this, k, labels,
-			cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT, 10, 1.0),
-			3, cv::KMEANS_PP_CENTERS);
+		// create a new instance of a GMM object for float data
+		auto gmm = vl_gmm_new(VL_TYPE_DOUBLE, 2, k);
+
+		// set the maximum number of EM iterations to 100
+		vl_gmm_set_max_num_iterations(gmm, 100);
+
+		// set the initialization to random selection
+		vl_gmm_set_initialization(gmm, VlGMMRand);
+
+		// cluster the data, i.e. learn the GMM
+		vl_gmm_cluster(gmm, data, size());
+
+		// get the means, covariances, and priors of the GMM
+		// auto means = (double *)vl_gmm_get_means(gmm);
+		// auto covariances = (double *)vl_gmm_get_covariances(gmm);
+		// auto priors = (double *)vl_gmm_get_priors(gmm);
+
+		// get loglikelihood of the estimated GMM
+		auto loglikelihood = vl_gmm_get_loglikelihood(gmm);
+
+		// get the soft assignments of the data points to each cluster
+		auto posteriors = (double *)vl_gmm_get_posteriors(gmm);
+
+		// results
 		book.resize(k);
 		for (int i = 0; i < (int)size(); i++)
-			book[labels[i]].push_back((*this)[i]);
-		return 0;
+		{
+			int imax = 0;
+			double vmax = 0;
+			for (int j = 0; j < k; j++)
+			{
+				if (posteriors[i * k + j] > vmax)
+				{
+					imax = j;
+					vmax = posteriors[i * k + j];
+				}
+			}
+			book[imax].push_back((*this)[i]);
+		}
+
+		// delete gmm
+		vl_gmm_delete(gmm);
+
+		// return likelihood
+		return loglikelihood;
 	}
 };
