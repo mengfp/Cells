@@ -108,24 +108,19 @@ public:
 class Cluster : public std::vector <Point>
 {
 public:
-	Point Center()
+	double Odd()
 	{
 		if (empty())
-			return Point(0, 0);
-
-		Point c(0, 0);
+			return 0;
+		Point c;
+		double d = 0;
 		for (auto & p : *this)
+		{
 			c += p;
-		return (1.0 / (int)size()) * c;
-	}
-
-	double Radius()
-	{
-		double r = 0;
-		Point c = Center();
-		for (auto & p : *this)
-			r = std::max(r, distance(p, c));
-		return r;
+			d += p.ddot(p);
+		}
+		double a = 1.0 / size();
+		return (d - c.ddot(c) * a) * a * a;
 	}
 
 	int Split(std::vector <Cluster> & book, int k)
