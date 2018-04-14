@@ -98,7 +98,7 @@ int Polish(Image & image, std::vector <Cluster> & book)
 	// 打磨处理
 	for (auto & c : book)
 	{
-		if (c.size() < SIZEMIN)
+		if (c.size() < MINSIZE)
 		{
 			c.clear();
 			continue;
@@ -148,18 +148,18 @@ int Split(Image & image, std::vector <Cluster> & book)
 	int n = (int)book.size();
 	for (int i = 0; i < n; i++)
 	{
-		if (book[i].size() < SIZEMIN)
+		if (book[i].size() < MINSIZE)
 			continue;
 
 		std::vector <Cluster> temp;
-		book[i].Split(temp);
+		book[i].Split(temp, (int)(MINSIZE * 1.5), (int)(MAXSIZE * 1.5));
 		if (temp.size() == 1)
 			continue;
 
 		book[i].clear();
 		for (auto & c : temp)
 		{
-			if (c.size() < SIZEMIN)
+			if (c.size() < MINSIZE)
 				continue;
 			for (auto & p : c)
 				image((int)p.x, (int)p.y).y = (float)book.size();
@@ -218,7 +218,7 @@ int Train()
 	int infect = 0;
 	for (auto & c : book)
 	{
-		if (c.size() < SIZEMIN)
+		if (c.size() < MINSIZE)
 			continue;
 
 		cells++;
@@ -329,7 +329,7 @@ int main(int argc, _TCHAR* argv[])
 	int infect = 0;
 	for (auto & c : book)
 	{
-		if (c.size() < SIZEMIN)
+		if (c.size() < MINSIZE)
 			continue;
 
 		cells++;
@@ -344,7 +344,7 @@ int main(int argc, _TCHAR* argv[])
 	}
 
 	// 输出结果
-	std::cout << cells << "," << infect << "," << (double)infect / (double)cells << std::endl;
+	std::cout << argv[1] << "," << cells << "," << infect << "," << (double)infect / (double)cells << std::endl;
 
 	// 输出图像
 	if (argc < 3)

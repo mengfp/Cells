@@ -5,8 +5,9 @@
 #include <opencv2/imgcodecs.hpp>
 #include <gmm.h>
 
-#define SIZEMIN 1200
-#define GAINMIN 500
+#define MINSIZE 1200
+#define MAXSIZE 3000
+#define MINGAIN 500
 
 typedef cv::Point3f Pixel;
 typedef cv::Point2f Point;
@@ -112,10 +113,10 @@ public:
 class Cluster : public std::vector <Point>
 {
 public:
-	int Split(std::vector <Cluster> & book)
+	int Split(std::vector <Cluster> & book, int minsize, int maxsize)
 	{
 		// check
-		if (size() < SIZEMIN)
+		if ((int)size() < minsize)
 			return 0;
 
 		// prepare data
@@ -126,29 +127,40 @@ public:
 			data[2 * i + 1] = (*this)[i].y;
 		}
 
-		// try to split
+		// split
 		double prev = -DBL_MAX;
-		for(int k = 1; k < 4; k++)
+		for(int k = 1; k < 5; k++)
 		{
 			std::vector <Cluster> temp;
-			double likelihood = Split(data, k, temp);
-			if (likelihood > prev + GAINMIN)
-			{
-				// accept and continue
-				temp.swap(book);
-				prev = likelihood;
-			}
+			double likelihood = GMSplit(data, k, temp);
+			if (likelihood < prev + MINGAIN)
+				break;
 			else
 			{
-				// stop
-				break;
+				// update result and continue
+				temp.swap(book);
+				prev = likelihood;
+
+				// check size
+				int done = 1;
+				for (auto & c : book)
+				{
+					if ((int)c.size() > maxsize)
+					{
+						done = 0;
+						break;
+					}
+				}
+				if (done)
+					break;
 			}
 		}
 
 		return 0;
 	}
 
-	double Split(const double * data, int k, std::vector <Cluster> & book)
+private:
+	double GMSplit(const double * data, int k, std::vector <Cluster> & book)
 	{
 		// create a new instance of a GMM object for float data
 		auto gmm = vl_gmm_new(VL_TYPE_DOUBLE, 2, k);
